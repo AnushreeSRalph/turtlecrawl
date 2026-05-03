@@ -1,0 +1,52 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: turtlecrawl-agent
+  namespace: turtlecrawl
+  labels:
+    app: turtlecrawl-agent
+spec:
+  # Retry once on failure
+  backoffLimit: 1
+  template:
+    spec:
+      serviceAccountName: turtlecrawl-agent
+      restartPolicy: Never
+      containers:
+        - name: agent
+          image: REGISTRY/agent:latest  # replaced by CI/CD
+          command:
+            - python
+            - main.py
+            - --deployment
+            - sample-app
+            - --namespace
+            - turtlecrawl
+            - --target-vus
+            - "100"
+            - --max-replicas
+            - "10"
+          env:
+            - name: ANTHROPIC_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: turtlecrawl-secrets
+                  key: anthropic-api-key
+            - name: AUDIT_BUCKET
+              value: "PROJECT_ID-turtlecrawl-audit-logs"
+            - name: PROMETHEUS_URL
+              value: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
+            - name: COLLECTOR_BIN
+              value: "/app/collector"
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+---
+# Secret for the Anthropic API key — create this manually:
+# kubectl create secret generic turtlecrawl-secrets \
+#   --namespace turtlecrawl \
+#   --from-literal=anthropic-api-key=sk-ant-...

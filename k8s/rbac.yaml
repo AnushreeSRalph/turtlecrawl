@@ -1,0 +1,36 @@
+# Service account for the scaling agent
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: turtlecrawl-agent
+  namespace: turtlecrawl
+  annotations:
+    # Workload Identity — binds to the GCP SA created by Terraform
+    iam.gke.io/gcp-service-account: turtlecrawl-agent@PROJECT_ID.iam.gserviceaccount.com
+---
+# ClusterRole — agent needs to read/scale deployments cluster-wide
+# (narrow to just the turtlecrawl namespace if preferred)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: turtlecrawl-scaler
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "deployments/scale"]
+    verbs: ["get", "list", "watch", "patch", "update"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: turtlecrawl-scaler-binding
+subjects:
+  - kind: ServiceAccount
+    name: turtlecrawl-agent
+    namespace: turtlecrawl
+roleRef:
+  kind: ClusterRole
+  name: turtlecrawl-scaler
+  apiGroup: rbac.authorization.k8s.io

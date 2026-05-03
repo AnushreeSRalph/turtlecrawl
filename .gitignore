@@ -1,0 +1,46 @@
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/.terraform.lock.hcl
+terraform/terraform.tfvars
+terraform/*.tfplan
+
+# Go
+collector/bin/
+*.exe
+*.test
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+agent/.env
+
+# Secrets
+*.json
+!sample-app/k8s/*.json
+service-account-key.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+build/
+
+SETUP.md
+
+# Run output + scratch files
+agent_run.txt
+demo.tape
+demo_run.sh
+*.cast

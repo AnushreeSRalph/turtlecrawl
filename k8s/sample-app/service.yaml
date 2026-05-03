@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app
+  namespace: turtlecrawl
+  labels:
+    app: sample-app
+spec:
+  selector:
+    app: sample-app
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+  type: ClusterIP
+---
+# ServiceMonitor — tells Prometheus operator to scrape this service
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sample-app
+  namespace: turtlecrawl
+  labels:
+    # Must match the prometheus operator's serviceMonitorSelector
+    release: kube-prometheus-stack
+spec:
+  selector:
+    matchLabels:
+      app: sample-app
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: "15s"
