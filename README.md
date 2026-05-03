@@ -2,9 +2,13 @@
 
 > LLM-driven Kubernetes scaling agent that autonomously runs load tests and scales pods based on custom metrics — using Gemini 2.5 Flash on Vertex AI.
 
+![Agent run](docs/agent_run.png)
+
 ---
 
 ## Architecture
+
+![Architecture](docs/turtlecrawl_architecture.png)
 
 ```
 ┌─────────────────────────────┐     ┌──────────────────────────────────┐
