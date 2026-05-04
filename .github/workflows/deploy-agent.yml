@@ -1,5 +1,0 @@
-# CI/CD via GitHub Actions is not used in this project.
-# Deploy locally with: make deploy-sample-app
-# Run the agent with:  make run-agent-dry  /  make run-agent
-#
-# If you want to add CI/CD later, see README for WIF-based workflow options.
