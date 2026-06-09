@@ -1,5 +1,3 @@
-// collector — CLI binary for turtlecrawl agent tools.
-// All output is JSON to stdout so the Python agent can parse it easily.
 package main
 
 import (
