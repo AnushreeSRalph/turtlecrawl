@@ -30,6 +30,12 @@ spec:
           env:
             - name: PORT
               value: "8080"
+            - name: NATS_URL
+              value: "nats://nats.turtlecrawl.svc.cluster.local:4222"
+            - name: NATS_ENABLED
+              value: "true"
+            - name: SNAPSHOT_INTERVAL_SECS
+              value: "30"
           resources:
             requests:
               cpu: "250m"

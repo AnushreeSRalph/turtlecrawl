@@ -1,0 +1,101 @@
+# ─── Global ──────────────────────────────────────────────────────────────────
+global:
+  # GCP project ID — required
+  projectId: ""
+  # GCP region
+  region: us-central1
+  # Artifact Registry base URL (set automatically from projectId + region if empty)
+  # Override: us-central1-docker.pkg.dev/<project>/turtlecrawl
+  registry: ""
+
+# ─── Namespace ───────────────────────────────────────────────────────────────
+namespace:
+  create: true
+  name: turtlecrawl
+
+# ─── RBAC ────────────────────────────────────────────────────────────────────
+rbac:
+  create: true
+  # GCP service account bound via Workload Identity
+  gcpServiceAccount: "turtlecrawl-agent"
+
+# ─── Sample App ──────────────────────────────────────────────────────────────
+sampleApp:
+  enabled: true
+  image:
+    repository: ""   # defaults to <registry>/sample-app
+    tag: latest
+    pullPolicy: Always
+  replicas: 1
+  port: 8080
+  nats:
+    enabled: true
+    snapshotIntervalSecs: 30
+    kedaSampleRate: "0.10"
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+  # Prometheus ServiceMonitor
+  serviceMonitor:
+    enabled: true
+    interval: "15s"
+    # Must match kube-prometheus-stack release name
+    release: kube-prometheus-stack
+
+# ─── NATS JetStream ──────────────────────────────────────────────────────────
+nats:
+  enabled: true
+  image:
+    repository: nats
+    tag: "2.10-alpine"
+  # JetStream storage limits
+  maxMemory: "128m"
+  maxFile: "8g"
+  storage:
+    className: standard-rwo
+    size: 10Gi
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# ─── KEDA ScaledObject ───────────────────────────────────────────────────────
+keda:
+  enabled: true
+  scaledObject:
+    name: sample-app-scaler
+    minReplicas: 1
+    maxReplicas: 20
+    pollingInterval: 15
+    cooldownPeriod: 60
+    # NATS JetStream trigger
+    stream: TURTLECRAWL
+    consumer: keda-consumer
+    lagThreshold: "100"
+    activationLagThreshold: "10"
+
+# ─── Agent Job ───────────────────────────────────────────────────────────────
+agent:
+  enabled: false   # set to true to deploy the in-cluster agent Job
+  image:
+    repository: ""   # defaults to <registry>/agent
+    tag: latest
+  geminiModel: "gemini-2.5-flash"
+  deployment: sample-app
+  targetVus: 500
+  maxReplicas: 20
+  kedaScaledObject: sample-app-scaler
+  resources:
+    requests:
+      cpu: "200m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"

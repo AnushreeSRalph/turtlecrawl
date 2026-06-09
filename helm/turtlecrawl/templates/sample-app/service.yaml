@@ -1,0 +1,39 @@
+{{- if .Values.sampleApp.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sample-app
+  namespace: {{ include "turtlecrawl.namespace" . }}
+  labels:
+    app: sample-app
+    {{- include "turtlecrawl.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: sample-app
+  ports:
+    - name: http
+      port: {{ .Values.sampleApp.port }}
+      targetPort: {{ .Values.sampleApp.port }}
+  type: ClusterIP
+---
+{{- if .Values.sampleApp.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: sample-app
+  namespace: {{ include "turtlecrawl.namespace" . }}
+  labels:
+    app: sample-app
+    release: {{ .Values.sampleApp.serviceMonitor.release }}
+    {{- include "turtlecrawl.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      app: sample-app
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.sampleApp.serviceMonitor.interval | quote }}
+{{- end }}
+{{- end }}

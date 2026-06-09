@@ -1,0 +1,62 @@
+{{- if .Values.sampleApp.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sample-app
+  namespace: {{ include "turtlecrawl.namespace" . }}
+  labels:
+    app: sample-app
+    {{- include "turtlecrawl.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.sampleApp.replicas }}
+  selector:
+    matchLabels:
+      app: sample-app
+  template:
+    metadata:
+      labels:
+        app: sample-app
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: {{ .Values.sampleApp.port | quote }}
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: sample-app
+          image: {{ include "turtlecrawl.sampleApp.image" . }}
+          imagePullPolicy: {{ .Values.sampleApp.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.sampleApp.port }}
+          env:
+            - name: PORT
+              value: {{ .Values.sampleApp.port | quote }}
+            - name: NATS_URL
+              value: {{ include "turtlecrawl.nats.url" . }}
+            - name: NATS_ENABLED
+              value: {{ .Values.sampleApp.nats.enabled | quote }}
+            - name: SNAPSHOT_INTERVAL_SECS
+              value: {{ .Values.sampleApp.nats.snapshotIntervalSecs | quote }}
+            - name: KEDA_SAMPLE_RATE
+              value: {{ .Values.sampleApp.nats.kedaSampleRate | quote }}
+          resources:
+            {{- toYaml .Values.sampleApp.resources | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.sampleApp.port }}
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: {{ .Values.sampleApp.port }}
+            initialDelaySeconds: 15
+            periodSeconds: 20
+          lifecycle:
+            preStop:
+              exec:
+                command: ["sleep", "15"]
+      terminationGracePeriodSeconds: 60
+{{- end }}

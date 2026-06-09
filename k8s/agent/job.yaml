@@ -1,3 +1,16 @@
+---
+# Agent Job — runs the turtlecrawl v2 agent in-cluster.
+#
+# Auth: Workload Identity — no API keys needed.
+# The pod's ServiceAccount is annotated with the GCP SA (rbac.yaml),
+# which grants Vertex AI (Gemini) access automatically.
+#
+# Apply with Makefile substitution:
+#   sed "s|REGISTRY|$(REGISTRY)|g; s|PROJECT_ID|$(PROJECT_ID)|g" \
+#     k8s/agent/job.yaml | kubectl apply -f -
+#
+# Or just run locally (easier for dev):
+#   make run-agent-v2
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -6,47 +19,51 @@ metadata:
   labels:
     app: turtlecrawl-agent
 spec:
-  # Retry once on failure
   backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
   template:
     spec:
       serviceAccountName: turtlecrawl-agent
       restartPolicy: Never
       containers:
         - name: agent
-          image: REGISTRY/agent:latest  # replaced by CI/CD
+          image: REGISTRY/agent:latest
           command:
             - python
-            - main.py
+            - main_mcp.py
             - --deployment
             - sample-app
             - --namespace
             - turtlecrawl
             - --target-vus
-            - "100"
+            - "500"
             - --max-replicas
-            - "10"
+            - "20"
+            - --load-in-cluster
+            - --keda-scaledobject
+            - sample-app-scaler
+            - --audit-bucket
+            - PROJECT_ID-turtlecrawl-audit
           env:
-            - name: ANTHROPIC_API_KEY
-              valueFrom:
-                secretKeyRef:
-                  name: turtlecrawl-secrets
-                  key: anthropic-api-key
-            - name: AUDIT_BUCKET
-              value: "PROJECT_ID-turtlecrawl-audit-logs"
+            # Vertex AI — uses Workload Identity, no key needed
+            - name: GCP_PROJECT_ID
+              value: "PROJECT_ID"
+            - name: GCP_REGION
+              value: "us-central1"
+            - name: GEMINI_MODEL
+              value: "gemini-2.5-flash"
+            # Prometheus — in-cluster (no port-forward needed)
             - name: PROMETHEUS_URL
               value: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
+            # NATS — in-cluster
+            - name: NATS_URL
+              value: "nats://nats.turtlecrawl.svc.cluster.local:4222"
             - name: COLLECTOR_BIN
-              value: "/app/collector"
+              value: "/app/collector/bin/collector"
           resources:
             requests:
-              cpu: "100m"
-              memory: "256Mi"
-            limits:
-              cpu: "500m"
+              cpu: "200m"
               memory: "512Mi"
----
-# Secret for the Anthropic API key — create this manually:
-# kubectl create secret generic turtlecrawl-secrets \
-#   --namespace turtlecrawl \
-#   --from-literal=anthropic-api-key=sk-ant-...
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"

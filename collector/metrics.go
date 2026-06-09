@@ -138,8 +138,11 @@ var getScaleMetricsCmd = &cobra.Command{
 	Short: "Return all scaling-relevant metrics in one JSON bundle",
 	Run: func(cmd *cobra.Command, args []string) {
 		queries := map[string]string{
-			"active_connections": `sum(active_connections)`,
-			"in_flight_requests": `sum(http_requests_in_flight)`,
+			// max() not sum(): each pod holds 1 persistent Prometheus scraper
+			// connection, so sum() always equals pod count regardless of real load.
+			// max() shows the worst-case single-pod value — 1 at rest, higher under load.
+			"active_connections": `max(active_connections)`,
+			"in_flight_requests": `max(http_requests_in_flight)`,
 			"p99_latency_ms":     `histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[2m])) by (le)) * 1000`,
 			"rps_total":          `sum(rate(http_requests_total[1m]))`,
 			"error_rate_5xx":     `sum(rate(http_requests_total{status=~"5.."}[1m])) / sum(rate(http_requests_total[1m]))`,

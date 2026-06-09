@@ -35,9 +35,18 @@ resource "google_container_cluster" "turtlecrawl" {
   name     = var.cluster_name
   location = var.region
 
-  # Remove default node pool — we manage our own below
+  
+  # initial_node_count=1 is required by GKE even when removing the pool.
   remove_default_node_pool = true
   initial_node_count       = 1
+
+
+  # remove_default_node_pool) to use pd-standard so it never touches SSD quota.
+  node_config {
+    machine_type = "e2-standard-4"
+    disk_type    = "pd-standard"
+    disk_size_gb = 50
+  }
 
   # Allow terraform destroy to delete the cluster
   deletion_protection = false
@@ -59,15 +68,21 @@ resource "google_container_node_pool" "turtlecrawl" {
   cluster    = google_container_cluster.turtlecrawl.name
   location   = var.region
 
-  # 2 nodes — enough for Prometheus + sample-app + agent with headroom
-  node_count = 2
+  # Pin to a single zone so node_count is literal, not per-zone.
+  # Without this, a regional cluster (us-central1) creates node_count nodes
+  # in EACH of the 3 zones — turning node_count=1 into 3 actual VMs (12 vCPU).
+  node_locations = ["us-central1-a"]
+
+  # 1 node = 4 vCPU in us-central1-a.
+  # Autoscaler can add a second node (8 vCPU total) under peak load.
+  node_count = 1
 
   node_config {
-    machine_type = "e2-standard-4"   # 4 vCPU · 16GB RAM · ~$0.13/hr per node
-    disk_size_gb = 50
-    disk_type    = "pd-standard"     # cheaper than SSD, fine for this workload
+    # e2-custom-4-32768 = 4 vCPU · 32GB RAM
+    machine_type = "e2-custom-4-32768"
+    disk_size_gb = 100
+    disk_type    = "pd-standard"   # HDD — avoids SSD_TOTAL_GB quota entirely
 
-    # Workload Identity on nodes
     workload_metadata_config {
       mode = "GKE_METADATA"
     }
@@ -79,7 +94,63 @@ resource "google_container_node_pool" "turtlecrawl" {
 
   autoscaling {
     min_node_count = 1
-    max_node_count = 4
+    max_node_count = 3
+  }
+
+  management {
+    auto_repair  = true
+    auto_upgrade = true
+  }
+
+  # node_count is adjusted manually via `gcloud container clusters resize`
+  # during experiments. Ignore drift so Terraform doesn't fight those changes.
+  lifecycle {
+    ignore_changes = [node_count]
+  }
+
+  depends_on = [google_container_cluster.turtlecrawl]
+}
+
+# ─── NATS Node Pool ──────────────────────────────────────────────────────────
+# Dedicated pool for the 3-node NATS JetStream cluster.
+# Tainted nats=true:NoSchedule so only NATS pods land here.
+# pd-ssd disks give JetStream the fsync latency it needs for high throughput
+# (~0.1–0.5ms vs 5–20ms on pd-standard HDD).
+
+resource "google_container_node_pool" "nats" {
+  name       = "nats-pool"
+  cluster    = google_container_cluster.turtlecrawl.name
+  location   = var.region
+
+  # Pin to the same zone as the app pool so inter-node traffic stays free
+  # (cross-zone egress is charged). Without node_locations, node_count=3 in a
+  # regional cluster creates 3 nodes PER ZONE = 9 VMs = 18 vCPU — over quota.
+  node_locations = ["us-central1-a"]
+
+  # Fixed at 3 — exactly one node per NATS replica, all in us-central1-a.
+  # No autoscaling: GKE must not evict a NATS node mid-operation as that
+  # would break JetStream quorum (R3 needs all 3 nodes for writes to succeed).
+  node_count = 3
+
+  node_config {
+    machine_type = "e2-standard-2"   # 2 vCPU · 8 GB — fits NATS + JetStream buffer
+    disk_size_gb = 50
+    disk_type    = "pd-ssd"          # Low-latency SSD for JetStream WAL writes
+
+    # Taint prevents non-NATS workloads from landing on these nodes.
+    taint {
+      key    = "nats"
+      value  = "true"
+      effect = "NO_SCHEDULE"
+    }
+
+    workload_metadata_config {
+      mode = "GKE_METADATA"
+    }
+
+    oauth_scopes = [
+      "https://www.googleapis.com/auth/cloud-platform",
+    ]
   }
 
   management {
@@ -104,7 +175,7 @@ resource "google_artifact_registry_repository" "turtlecrawl" {
 resource "google_storage_bucket" "audit_logs" {
   name          = "${var.project_id}-turtlecrawl-audit"
   location      = var.region
-  force_destroy = false
+  force_destroy = true   # allows terraform destroy even when audit objects exist
 
   lifecycle_rule {
     condition { age = 90 }

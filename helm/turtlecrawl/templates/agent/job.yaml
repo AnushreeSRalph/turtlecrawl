@@ -1,0 +1,52 @@
+{{- if .Values.agent.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: turtlecrawl-agent
+  namespace: {{ include "turtlecrawl.namespace" . }}
+  labels:
+    app: turtlecrawl-agent
+    {{- include "turtlecrawl.labels" . | nindent 4 }}
+spec:
+  backoffLimit: 1
+  ttlSecondsAfterFinished: 3600
+  template:
+    spec:
+      serviceAccountName: turtlecrawl-agent
+      restartPolicy: Never
+      containers:
+        - name: agent
+          image: {{ include "turtlecrawl.agent.image" . }}
+          imagePullPolicy: {{ .Values.agent.image.pullPolicy | default "Always" }}
+          command:
+            - python
+            - main_mcp.py
+            - --deployment
+            - {{ .Values.agent.deployment }}
+            - --namespace
+            - {{ include "turtlecrawl.namespace" . }}
+            - --target-vus
+            - {{ .Values.agent.targetVus | quote }}
+            - --max-replicas
+            - {{ .Values.agent.maxReplicas | quote }}
+            - --load-in-cluster
+            - --keda-scaledobject
+            - {{ .Values.agent.kedaScaledObject }}
+            - --audit-bucket
+            - {{ printf "%s-turtlecrawl-audit" .Values.global.projectId }}
+          env:
+            - name: GCP_PROJECT_ID
+              value: {{ .Values.global.projectId | quote }}
+            - name: GCP_REGION
+              value: {{ .Values.global.region | quote }}
+            - name: GEMINI_MODEL
+              value: {{ .Values.agent.geminiModel | quote }}
+            - name: PROMETHEUS_URL
+              value: "http://kube-prometheus-stack-prometheus.monitoring.svc.cluster.local:9090"
+            - name: NATS_URL
+              value: {{ include "turtlecrawl.nats.url" . }}
+            - name: COLLECTOR_BIN
+              value: "/app/collector/bin/collector"
+          resources:
+            {{- toYaml .Values.agent.resources | nindent 12 }}
+{{- end }}

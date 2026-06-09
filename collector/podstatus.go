@@ -33,6 +33,62 @@ var (
 	podStatusNamespace  string
 )
 
+// getPodStatus is the shared implementation used by both the CLI command
+// and the MCP tool handler.
+func getPodStatus(deployment, namespace string) (PodStatusResult, error) {
+	cs, err := k8sClient()
+	if err != nil {
+		return PodStatusResult{}, err
+	}
+
+	dep, err := cs.AppsV1().Deployments(namespace).Get(
+		context.Background(), deployment, metav1.GetOptions{},
+	)
+	if err != nil {
+		return PodStatusResult{}, fmt.Errorf("getting deployment: %w", err)
+	}
+
+	selector := metav1.FormatLabelSelector(dep.Spec.Selector)
+	podList, err := cs.CoreV1().Pods(namespace).List(
+		context.Background(), metav1.ListOptions{LabelSelector: selector},
+	)
+	if err != nil {
+		return PodStatusResult{}, fmt.Errorf("listing pods: %w", err)
+	}
+
+	var pods []PodInfo
+	readyCount := 0
+	for _, pod := range podList.Items {
+		ready := false
+		var restarts int32
+		for _, cs := range pod.Status.ContainerStatuses {
+			restarts += cs.RestartCount
+			if cs.Ready {
+				ready = true
+			}
+		}
+		if ready {
+			readyCount++
+		}
+		pods = append(pods, PodInfo{
+			Name:     pod.Name,
+			Phase:    string(pod.Status.Phase),
+			Ready:    ready,
+			Restarts: restarts,
+			NodeName: pod.Spec.NodeName,
+		})
+	}
+
+	return PodStatusResult{
+		Deployment: deployment,
+		Namespace:  namespace,
+		TotalPods:  len(pods),
+		ReadyPods:  readyCount,
+		AllReady:   readyCount == len(pods) && len(pods) > 0,
+		Pods:       pods,
+	}, nil
+}
+
 var podStatusCmd = &cobra.Command{
 	Use:   "pod-status",
 	Short: "Return readiness status for all pods of a deployment",

@@ -1,48 +1,45 @@
+{{- if .Values.rbac.create }}
 ---
-# Service account for the scaling agent.
-# The annotation wires Workload Identity so in-cluster pods can call Vertex AI
-# without a key file. PROJECT_ID is substituted by the Makefile at apply time.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: turtlecrawl-agent
-  namespace: turtlecrawl
+  namespace: {{ include "turtlecrawl.namespace" . }}
+  labels:
+    {{- include "turtlecrawl.labels" . | nindent 4 }}
   annotations:
-    iam.gke.io/gcp-service-account: turtlecrawl-agent@PROJECT_ID.iam.gserviceaccount.com
-
+    # Workload Identity — lets the agent Pod call GCP APIs without a key file
+    iam.gke.io/gcp-service-account: {{ include "turtlecrawl.gcpServiceAccountEmail" . }}
 ---
-# ClusterRole — minimal permissions the agent needs.
-# Covers both v1 (direct kubectl) and v2 (MCP server, KEDA tools, events).
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
   name: turtlecrawl-scaler
+  labels:
+    {{- include "turtlecrawl.labels" . | nindent 4 }}
 rules:
-  # Deployments + scale subresource — read and scale
   - apiGroups: ["apps"]
     resources: ["deployments", "deployments/scale", "replicasets"]
     verbs: ["get", "list", "watch", "patch", "update"]
-
-  # Pods + events — pod status and Kubernetes event log (list_k8s_events tool)
   - apiGroups: [""]
     resources: ["pods", "events"]
     verbs: ["get", "list", "watch"]
-
-  # KEDA ScaledObjects — read + patch (get_keda_scaledobject, set_keda_paused tools)
   - apiGroups: ["keda.sh"]
     resources: ["scaledobjects", "scaledjobs"]
     verbs: ["get", "list", "watch", "patch", "update"]
-
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
   name: turtlecrawl-scaler-binding
+  labels:
+    {{- include "turtlecrawl.labels" . | nindent 4 }}
 subjects:
   - kind: ServiceAccount
     name: turtlecrawl-agent
-    namespace: turtlecrawl
+    namespace: {{ include "turtlecrawl.namespace" . }}
 roleRef:
   kind: ClusterRole
   name: turtlecrawl-scaler
   apiGroup: rbac.authorization.k8s.io
+{{- end }}

@@ -1,0 +1,14 @@
+apiVersion: v2
+name: turtlecrawl
+description: LLM-supervised KEDA autoscaling — MCP + NATS JetStream + KEDA
+type: application
+version: 2.0.0
+appVersion: "2.0.0"
+keywords:
+  - keda
+  - nats
+  - mcp
+  - autoscaling
+  - llm
+maintainers:
+  - name: turtlecrawl
