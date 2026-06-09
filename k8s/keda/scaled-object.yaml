@@ -1,0 +1,76 @@
+---
+# KEDA ScaledObject — scales sample-app based on NATS JetStream consumer lag.
+#
+# Trigger: NATS JetStream scaler watches the "keda-consumer" on stream TURTLECRAWL.
+# sample-app publishes to turtlecrawl.keda.load on each request (10% sampled).
+# When consumer lag > lagThreshold, KEDA scales sample-app UP.
+# When lag drops, KEDA scales DOWN to minReplicaCount.
+#
+#
+# Prerequisites:
+#   kubectl apply --server-side \
+#     -f https://github.com/kedacore/keda/releases/download/v2.14.0/keda-2.14.0.yaml
+#
+# One-time stream + consumer init:
+#   kubectl run nats-init --rm -i --restart=Never \
+#     --image=natsio/nats-box --namespace=turtlecrawl -- sh -c "
+#       nats stream add TURTLECRAWL \
+#         --subjects 'turtlecrawl.>' \
+#         --retention limits \
+#         --max-age 168h \
+#         --server nats://nats.turtlecrawl.svc.cluster.local:4222 && \
+#       nats consumer add TURTLECRAWL keda-consumer \
+#         --filter 'turtlecrawl.keda.load' \
+#         --ack explicit \
+#         --deliver all \
+#         --server nats://nats.turtlecrawl.svc.cluster.local:4222
+#     "
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: sample-app-scaler
+  namespace: turtlecrawl
+  labels:
+    app: sample-app
+    managed-by: turtlecrawl-agent
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: sample-app
+  pollingInterval:  15    # seconds between KEDA checks
+  cooldownPeriod:   60    # seconds to wait before scaling down after idle
+  minReplicaCount:  1
+  maxReplicaCount:  20
+  triggers:
+    - type: nats-jetstream
+      metadata:
+        # NATS monitoring endpoint — KEDA reads consumer lag from here
+        natsServerMonitoringEndpoint: "nats.turtlecrawl.svc.cluster.local:8222"
+        account: "$G"         # default account
+        stream:   "TURTLECRAWL"
+        consumer: "keda-consumer"
+        # Scale UP when consumer has > 100 unprocessed messages
+        lagThreshold: "100"
+        # Start scaling up from 0 when lag exceeds this
+        activationLagThreshold: "10"
+  advanced:
+    restoreToOriginalReplicaCount: false
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleUp:
+          stabilizationWindowSeconds: 0    # react immediately to burst
+          policies:
+            - type:          Pods
+              value:         4             # add up to 4 pods per 15s
+              periodSeconds: 15
+        scaleDown:
+          stabilizationWindowSeconds: 120  # wait 2 min before scaling down
+          policies:
+            - type:          Pods
+              value:         1             # remove 1 pod at a time
+              periodSeconds: 60
+
+# TriggerAuthentication omitted — dev NATS has no credentials.
+# For production, add a TriggerAuthentication with secretTargetRef pointing
+# to a Secret containing natsUsername / natsPassword.
