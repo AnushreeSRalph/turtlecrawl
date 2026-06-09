@@ -1,0 +1,61 @@
+---
+# ClusterIP service for NATS client connections.
+# All in-cluster clients (sample-app, Go MCP server, KEDA) connect here.
+# Load-balances across all 3 NATS pods — clients transparently reach the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: turtlecrawl
+  labels:
+    app: nats
+    component: messaging
+spec:
+  type: ClusterIP
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+      protocol: TCP
+    - name: monitoring
+      port: 8222
+      targetPort: 8222
+      protocol: TCP
+
+---
+# Headless service for StatefulSet DNS and cluster routing.
+# Pods resolve as nats-{0,1,2}.nats-headless.turtlecrawl.svc.cluster.local
+# The cluster block in nats.conf uses these names for peer routes (port 6222).
+# Port 6222 is only needed on the headless service — clients never use it.
+#
+# publishNotReadyAddresses: true is required for NATS cluster bootstrap.
+# By default, Kubernetes only publishes DNS records for Ready pods. But NATS
+# pods can't become Ready until they form a cluster, and they can't form a
+# cluster if they can't resolve each other's DNS — a catch-22. This field
+# breaks the deadlock by publishing DNS for all pods regardless of readiness.
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-headless
+  namespace: turtlecrawl
+  labels:
+    app: nats
+    component: messaging
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: cluster
+      port: 6222
+      targetPort: 6222
+    - name: monitoring
+      port: 8222
+      targetPort: 8222

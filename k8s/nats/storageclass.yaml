@@ -1,0 +1,28 @@
+---
+# StorageClass for NATS JetStream PVCs — pd-ssd via the GKE CSI driver.
+#
+# Why pd-ssd:
+#   JetStream durability depends on fsync latency. pd-standard (HDD) averages
+#   5–20ms per fsync; pd-ssd averages 0.1–0.5ms. At 1k+ msg/s the difference
+#   is the bottleneck between ~5k msg/s and ~100k+ msg/s sustained throughput.
+#
+# WaitForFirstConsumer:
+#   Ensures the PV is provisioned in the same zone as the NATS pod that claims
+#   it. Without this, the PV could land in a different zone, causing the pod
+#   to fail to schedule (cross-zone PVC attachment is not supported on GKE
+#   zonal node pools without explicit zone spreading).
+#
+# This StorageClass is cluster-scoped (no namespace).
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nats-ssd
+  labels:
+    app: nats
+    component: messaging
+provisioner: pd.csi.storage.gke.io
+parameters:
+  type: pd-ssd
+volumeBindingMode: WaitForFirstConsumer
+allowVolumeExpansion: true
+reclaimPolicy: Delete

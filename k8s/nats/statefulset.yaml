@@ -1,0 +1,144 @@
+---
+# NATS JetStream StatefulSet — 3-node cluster on dedicated pd-ssd nodes.
+#
+# Cluster mode:
+#   Each pod connects to the others via the nats-headless Service using stable
+#   StatefulSet DNS names (nats-0, nats-1, nats-2). The cluster block in
+#   nats.conf routes messages between nodes. JetStream stream replication
+#   factor R3 means every message is committed to all 3 nodes before ack.
+#
+# Node placement:
+#   Pods tolerate the nats=true:NoSchedule taint on the nats-pool nodes and
+#   prefer them via nodeAffinity. This keeps NATS off the app/Prometheus nodes
+#   so a load spike doesn't evict NATS via resource pressure.
+#
+# Storage:
+#   PVCs use the nats-ssd StorageClass (pd-ssd, WaitForFirstConsumer).
+#   Each pod gets its own 10Gi PV — 30Gi total JetStream capacity across the
+#   cluster. The in-memory tier is 512m per node (set in nats.conf).
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: turtlecrawl
+  labels:
+    app: nats
+    component: messaging
+spec:
+  replicas: 3
+  serviceName: nats-headless
+  # Parallel: all 3 pods start simultaneously so they can resolve each other's
+  # DNS names and form the cluster. The default OrderedReady would deadlock:
+  # nats-0 waits for Ready before nats-1 is created, but nats-0 can't reach
+  # Ready without nats-1/nats-2 (JetStream needs quorum to elect a meta leader).
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+        component: messaging
+    spec:
+      # Drain connections before terminating — important during rolling updates
+      # so in-flight JetStream publishes complete before the pod exits.
+      terminationGracePeriodSeconds: 60
+
+      # Allow scheduling on the tainted nats-pool nodes.
+      tolerations:
+        - key: "nats"
+          operator: "Equal"
+          value: "true"
+          effect: "NoSchedule"
+
+      # Prefer the dedicated nats-pool nodes. The taint already prevents
+      # other pods from landing there; this affinity pulls NATS pods toward it.
+      affinity:
+        nodeAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              preference:
+                matchExpressions:
+                  - key: cloud.google.com/gke-nodepool
+                    operator: In
+                    values:
+                      - nats-pool
+        # Spread NATS pods across nodes — never co-locate two replicas on the
+        # same node, which would defeat the purpose of a 3-node cluster.
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app: nats
+              topologyKey: kubernetes.io/hostname
+
+      containers:
+        - name: nats
+          image: nats:2.10-alpine
+          args:
+            - "-c"
+            - "/etc/nats/nats.conf"
+          ports:
+            - name: client
+              containerPort: 4222
+              protocol: TCP
+            - name: cluster
+              containerPort: 6222
+              protocol: TCP
+            - name: monitoring
+              containerPort: 8222
+              protocol: TCP
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+            - name: data
+              mountPath: /data/jetstream
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            # 10 failures × 10s = 100s window for cluster to form quorum.
+            # With Parallel start, all 3 pods get IPs within ~5s of each other;
+            # NATS routes connect within ~10s; meta leader elected within ~15s.
+            failureThreshold: 10
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            # Don't fire liveness until well after cluster should be established.
+            # A pod killed here before quorum forms just resets the clock.
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 5
+
+      volumes:
+        - name: config
+          configMap:
+            name: nats-config
+
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: nats
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: nats-ssd    # pd-ssd via CSI — see k8s/nats/storageclass.yaml
+        resources:
+          requests:
+            storage: 10Gi

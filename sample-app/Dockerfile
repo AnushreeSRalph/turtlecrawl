@@ -18,7 +18,7 @@ EXPOSE 8080
 
 CMD ["gunicorn", "app:app", \
      "--bind", "0.0.0.0:8080", \
-     "--workers", "4", \
-     "--threads", "2", \
+     "--workers", "1", \
+     "--threads", "4", \
      "--timeout", "30", \
      "--access-logfile", "-"]

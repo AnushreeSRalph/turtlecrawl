@@ -1,0 +1,23 @@
+{{- if .Values.nats.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: {{ include "turtlecrawl.namespace" . }}
+  labels:
+    app: nats
+    {{- include "turtlecrawl.labels" . | nindent 4 }}
+data:
+  nats.conf: |
+    port: 4222
+    http_port: 8222
+
+    jetstream {
+      store_dir: /data/jetstream
+      max_mem:  {{ .Values.nats.maxMemory }}
+      max_file: {{ .Values.nats.maxFile }}
+    }
+
+    debug: false
+    trace: false
+{{- end }}

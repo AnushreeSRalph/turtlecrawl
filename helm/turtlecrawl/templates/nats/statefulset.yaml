@@ -1,0 +1,74 @@
+{{- if .Values.nats.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: {{ include "turtlecrawl.namespace" . }}
+  labels:
+    app: nats
+    {{- include "turtlecrawl.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: nats-headless
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+        component: messaging
+    spec:
+      terminationGracePeriodSeconds: 60
+      containers:
+        - name: nats
+          image: {{ .Values.nats.image.repository }}:{{ .Values.nats.image.tag }}
+          args:
+            - "-c"
+            - "/etc/nats/nats.conf"
+          ports:
+            - name: client
+              containerPort: 4222
+            - name: monitoring
+              containerPort: 8222
+          env:
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          resources:
+            {{- toYaml .Values.nats.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/nats
+            - name: data
+              mountPath: /data/jetstream
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8222
+            initialDelaySeconds: 15
+            periodSeconds: 30
+      volumes:
+        - name: config
+          configMap:
+            name: nats-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app: nats
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        storageClassName: {{ .Values.nats.storage.className }}
+        resources:
+          requests:
+            storage: {{ .Values.nats.storage.size }}
+{{- end }}

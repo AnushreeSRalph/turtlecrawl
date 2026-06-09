@@ -1,0 +1,50 @@
+---
+# NATS server configuration — 3-node JetStream cluster.
+#
+# Cluster routing:
+#   Each pod connects to the other two via stable headless-Service DNS names.
+#   NATS ignores the self-route automatically, so all three pods can share the
+#   same config without pod-specific overrides.
+#
+# JetStream tuning vs single-node config:
+#   max_mem:  512m  (up from 128m — larger write buffer before SSD flush)
+#   max_file: 8g    (per node; 24g total across the cluster)
+#   max_connections: 4096 (up from 1024 — cluster adds internal route conns)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: turtlecrawl
+data:
+  nats.conf: |
+    # NATS server config — turtlecrawl cluster
+    server_name: $POD_NAME   # unique per pod — required by JetStream cluster mode
+    port: 4222
+    http_port: 8222          # monitoring endpoint (KEDA + agent reads this)
+    max_connections: 4096
+    max_payload: 8mb
+
+    # JetStream — persistent message store on pd-ssd
+    jetstream {
+      store_dir: /data/jetstream
+      max_mem:  512m           # in-memory write buffer per node
+      max_file: 8g             # file tier per node (30g total across R3 cluster)
+    }
+
+    # Cluster — enables NATS server mesh across the 3 StatefulSet pods.
+    # Routes use the headless Service so each pod resolves its peers by
+    # stable DNS name (nats-{0,1,2}.nats-headless.<namespace>.svc.cluster.local).
+    # NATS silently drops the self-route, so all pods share this config.
+    cluster {
+      name: turtlecrawl
+      port: 6222
+      routes: [
+        nats-route://nats-0.nats-headless.turtlecrawl.svc.cluster.local:6222
+        nats-route://nats-1.nats-headless.turtlecrawl.svc.cluster.local:6222
+        nats-route://nats-2.nats-headless.turtlecrawl.svc.cluster.local:6222
+      ]
+    }
+
+    # Logging
+    debug: false
+    trace: false

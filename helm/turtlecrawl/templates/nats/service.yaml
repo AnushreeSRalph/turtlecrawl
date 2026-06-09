@@ -1,0 +1,43 @@
+{{- if .Values.nats.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats
+  namespace: {{ include "turtlecrawl.namespace" . }}
+  labels:
+    app: nats
+    {{- include "turtlecrawl.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: monitoring
+      port: 8222
+      targetPort: 8222
+  type: ClusterIP
+---
+# Headless service for StatefulSet DNS
+apiVersion: v1
+kind: Service
+metadata:
+  name: nats-headless
+  namespace: {{ include "turtlecrawl.namespace" . }}
+  labels:
+    app: nats
+    {{- include "turtlecrawl.labels" . | nindent 4 }}
+spec:
+  selector:
+    app: nats
+  ports:
+    - name: client
+      port: 4222
+      targetPort: 4222
+    - name: monitoring
+      port: 8222
+      targetPort: 8222
+  clusterIP: None
+{{- end }}
